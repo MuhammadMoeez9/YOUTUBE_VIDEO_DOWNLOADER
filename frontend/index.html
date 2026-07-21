@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YT Downloader — Download YouTube Videos in Any Quality</title>
+  <meta name="description" content="Paste a YouTube URL, pick your resolution, and download instantly. Supports 144p to 4K." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Animated background -->
+  <div class="bg-orbs" aria-hidden="true">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <main class="container">
+
+    <!-- ── Hero Header ── -->
+    <header class="hero">
+      <div class="logo">
+        <svg class="logo-icon" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="20" cy="20" r="20" fill="url(#logoGrad)"/>
+          <path d="M16 13.5L28 20L16 26.5V13.5Z" fill="white"/>
+          <defs>
+            <linearGradient id="logoGrad" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#a855f7"/>
+              <stop offset="1" stop-color="#3b82f6"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        <span class="logo-text">YT<span class="logo-accent">Grab</span></span>
+      </div>
+      <h1 class="hero-title">Download Any YouTube Video</h1>
+      <p class="hero-subtitle">Paste a link · Pick your quality · Save instantly</p>
+    </header>
+
+    <!-- ── URL Input Card ── -->
+    <section class="card input-card" aria-label="Video URL input">
+      <div class="input-wrapper">
+        <span class="input-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07L11 5.93"/>
+            <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07L13 18.07"/>
+          </svg>
+        </span>
+        <input
+          id="url-input"
+          type="url"
+          class="url-input"
+          placeholder="Paste YouTube URL here…"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="YouTube video URL"
+        />
+        <button id="fetch-btn" class="btn btn-primary" aria-label="Fetch video info">
+          <span class="btn-text">Fetch</span>
+          <span class="btn-spinner" aria-hidden="true"></span>
+        </button>
+      </div>
+      <p id="url-error" class="error-msg" role="alert" aria-live="polite"></p>
+    </section>
+
+    <!-- ── Video Info Card (hidden until fetched) ── -->
+    <section id="video-card" class="card video-card hidden" aria-label="Video information">
+
+      <!-- Skeleton / loaded state toggled via JS -->
+      <div class="video-layout">
+
+        <!-- Thumbnail -->
+        <div class="thumbnail-wrap">
+          <div class="thumbnail-skeleton skeleton" id="thumb-skeleton" aria-hidden="true"></div>
+          <img id="thumbnail" class="thumbnail hidden" alt="Video thumbnail" />
+          <div class="thumb-badge" id="duration-badge" aria-label="Video duration"></div>
+        </div>
+
+        <!-- Meta -->
+        <div class="video-meta">
+          <div class="skeleton skeleton-title" id="title-skeleton" aria-hidden="true"></div>
+          <h2 id="video-title" class="video-title hidden"></h2>
+
+          <div class="skeleton skeleton-sub" id="channel-skeleton" aria-hidden="true"></div>
+          <p id="video-channel" class="video-channel hidden"></p>
+
+          <div id="video-stats" class="video-stats hidden">
+            <span class="stat-chip" id="stat-views">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <span id="view-count"></span>
+            </span>
+            <span class="stat-chip" id="stat-dur">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span id="dur-display"></span>
+            </span>
+          </div>
+
+          <!-- Quality selector -->
+          <div id="quality-section" class="quality-section hidden">
+            <label class="quality-label" for="quality-select">Select Quality</label>
+            <div class="quality-grid" id="quality-grid" role="radiogroup" aria-label="Video quality options"></div>
+          </div>
+
+          <!-- Download button -->
+          <button id="download-btn" class="btn btn-download hidden" aria-label="Download video">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            <span class="btn-text">Download</span>
+            <span class="btn-spinner" aria-hidden="true"></span>
+          </button>
+
+          <!-- Progress bar -->
+          <div id="progress-wrap" class="progress-wrap hidden" role="status" aria-live="polite">
+            <div class="progress-bar">
+              <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <p class="progress-label" id="progress-label">Preparing download…</p>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Toast ── -->
+    <div id="toast" class="toast" role="alert" aria-live="assertive" aria-atomic="true"></div>
+
+    <!-- ── Footer ── -->
+    <footer class="footer">
+      <p>For personal &amp; educational use only &bull; Respect YouTube's <a href="https://www.youtube.com/static?template=terms" target="_blank" rel="noopener noreferrer">Terms of Service</a></p>
+    </footer>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
