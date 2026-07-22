@@ -5,7 +5,10 @@ from flask import Flask, request, jsonify, redirect, send_from_directory
 from flask_cors import CORS
 import yt_dlp
 
+# Vercel function root resolution
+API_DIR = Path(__file__).parent
 ROOT_DIR = Path(__file__).parent.parent
+
 app = Flask(__name__, static_folder=str(ROOT_DIR), static_url_path="")
 CORS(app)
 
@@ -27,12 +30,37 @@ def format_filesize(size_bytes: int) -> str:
     if size_bytes >= 1_024: return f"{size_bytes / 1_024:.0f} KB"
     return f"{size_bytes} B"
 
-def extract_info_fast(url: str):
+def find_cookie_file():
+    # Check api/cookies.txt (bundled by Vercel inside function directory)
+    api_cookies = API_DIR / "cookies.txt"
+    if api_cookies.exists():
+        return str(api_cookies)
+    
+    # Check root cookies.txt
+    root_cookies = ROOT_DIR / "cookies.txt"
+    if root_cookies.exists():
+        return str(root_cookies)
+        
+    return None
+
+def get_yt_dlp_opts(extra_opts=None):
     opts = {
         "quiet": True, 
         "no_warnings": True, 
         "skip_download": True,
     }
+    
+    cookie_path = find_cookie_file()
+    if cookie_path:
+        opts["cookiefile"] = cookie_path
+    
+    if extra_opts:
+        opts.update(extra_opts)
+        
+    return opts
+
+def extract_info_fast(url: str):
+    opts = get_yt_dlp_opts()
     with yt_dlp.YoutubeDL(opts) as ydl:
         return ydl.extract_info(url, download=False)
 
@@ -55,7 +83,8 @@ def video_info():
     try:
         info = extract_info_fast(url)
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        cookie_status = "found" if find_cookie_file() else "NOT found in bundle"
+        return jsonify({"error": f"{str(e)} (Cookie file: {cookie_status})"}), 400
 
     qualities = []
     seen_heights = set()
@@ -111,12 +140,7 @@ def download_video():
         return jsonify({"error": "Missing params"}), 400
 
     try:
-        opts = {
-            "quiet": True, 
-            "no_warnings": True, 
-            "skip_download": True,
-            "format": format_id
-        }
+        opts = get_yt_dlp_opts({"format": format_id})
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
             direct_url = info.get("url")
