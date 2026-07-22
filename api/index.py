@@ -1,5 +1,6 @@
 import re
 import os
+import shutil
 from pathlib import Path
 from flask import Flask, request, jsonify, redirect, send_from_directory
 from flask_cors import CORS
@@ -31,16 +32,25 @@ def format_filesize(size_bytes: int) -> str:
     return f"{size_bytes} B"
 
 def find_cookie_file():
-    # Check api/cookies.txt (bundled by Vercel inside function directory)
     api_cookies = API_DIR / "cookies.txt"
-    if api_cookies.exists():
-        return str(api_cookies)
-    
-    # Check root cookies.txt
     root_cookies = ROOT_DIR / "cookies.txt"
-    if root_cookies.exists():
-        return str(root_cookies)
+    
+    src = None
+    if api_cookies.exists():
+        src = api_cookies
+    elif root_cookies.exists():
+        src = root_cookies
         
+    if src:
+        # Vercel has a read-only filesystem at /var/task, but /tmp is writable.
+        # Copy cookie file to /tmp so yt-dlp can safely open/write to it.
+        tmp_cookies = Path("/tmp/cookies.txt")
+        try:
+            shutil.copyfile(src, tmp_cookies)
+            return str(tmp_cookies)
+        except Exception:
+            return str(src)
+            
     return None
 
 def get_yt_dlp_opts(extra_opts=None):
@@ -83,7 +93,7 @@ def video_info():
     try:
         info = extract_info_fast(url)
     except Exception as e:
-        cookie_status = "found" if find_cookie_file() else "NOT found in bundle"
+        cookie_status = "found" if find_cookie_file() else "NOT found"
         return jsonify({"error": f"{str(e)} (Cookie file: {cookie_status})"}), 400
 
     qualities = []
