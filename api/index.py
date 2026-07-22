@@ -1,11 +1,12 @@
 import re
 import os
 from pathlib import Path
-from flask import Flask, request, jsonify, redirect
+from flask import Flask, request, jsonify, redirect, send_from_directory
 from flask_cors import CORS
 import yt_dlp
 
-app = Flask(__name__)
+ROOT_DIR = Path(__file__).parent.parent
+app = Flask(__name__, static_folder=str(ROOT_DIR), static_url_path="")
 CORS(app)
 
 QUALITY_LABEL_MAP = {
@@ -14,7 +15,7 @@ QUALITY_LABEL_MAP = {
     "360":  "360p",
     "480":  "480p",
     "720":  "720p",
-    "1080": "1080p (No Audio/Requires PRO)", # Vercel cannot merge 1080p
+    "1080": "1080p (No Audio/Requires PRO)",
 }
 
 def get_quality_label(height: int) -> str:
@@ -31,10 +32,20 @@ def extract_info_fast(url: str):
         "quiet": True, 
         "no_warnings": True, 
         "skip_download": True,
-        # Vercel doesn't have browsers, bypass cookies to avoid crashes
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
         return ydl.extract_info(url, download=False)
+
+@app.route("/")
+def index():
+    return send_from_directory(str(ROOT_DIR), "index.html")
+
+@app.route("/<path:path>")
+def static_proxy(path):
+    file_path = ROOT_DIR / path
+    if file_path.exists() and file_path.is_file():
+        return send_from_directory(str(ROOT_DIR), path)
+    return send_from_directory(str(ROOT_DIR), "index.html")
 
 @app.route("/api/info", methods=["GET"])
 def video_info():
@@ -46,9 +57,6 @@ def video_info():
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
-    # For Vercel, we can ONLY offer formats that have BOTH video and audio pre-merged
-    # because Vercel does not have ffmpeg to merge them.
-    # We will filter for formats where vcodec != none AND acodec != none
     qualities = []
     seen_heights = set()
 
@@ -61,7 +69,7 @@ def video_info():
         acodec = fmt.get("acodec", "none")
 
         if not h or vcodec == "none" or acodec == "none":
-            continue # Skip video-only or audio-only streams
+            continue
         
         if h in seen_heights:
             continue
@@ -103,7 +111,6 @@ def download_video():
         return jsonify({"error": "Missing params"}), 400
 
     try:
-        # Ask yt-dlp for the direct URL of that specific format
         opts = {
             "quiet": True, 
             "no_warnings": True, 
@@ -112,8 +119,6 @@ def download_video():
         }
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            
-            # Since we requested a specific format_id, info['url'] is the direct link
             direct_url = info.get("url")
             if not direct_url:
                 return jsonify({"error": "Could not extract direct URL"}), 500
@@ -122,10 +127,6 @@ def download_video():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-# Vercel Serverless entrypoint
-def handler(event, context):
-    return app(event, context)
 
 if __name__ == "__main__":
     app.run(port=5000, debug=True)
