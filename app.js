@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════
-   YTGrab — App Logic (Vercel Edition)
+   YTGrab — App Logic (Direct Stream Edition)
    ════════════════════════════════════════════════════════════ */
 
 const API_BASE = "";
@@ -23,15 +23,14 @@ const qualitySection = document.getElementById("quality-section");
 const qualityGrid    = document.getElementById("quality-grid");
 const downloadBtn    = document.getElementById("download-btn");
 const progressWrap   = document.getElementById("progress-wrap");
-const progressLabel  = document.getElementById("progress-label");
 const toast          = document.getElementById("toast");
 
 // ── State ─────────────────────────────────────────────────────
-let currentVideoData = null;
-let selectedQuality  = null;
-let selectedFormatId = null;
-let selectedFilesize = "";
-let toastTimer       = null;
+let currentVideoData  = null;
+let selectedQuality   = null;
+let selectedUrl       = null;
+let selectedFilesize  = "";
+let toastTimer        = null;
 
 // ── Helpers ───────────────────────────────────────────────────
 function formatDuration(seconds) {
@@ -116,7 +115,7 @@ function populateVideoCard(data) {
 function buildQualityPills(qualities) {
   qualityGrid.innerHTML = "";
   selectedQuality  = null;
-  selectedFormatId = null;
+  selectedUrl      = null;
   selectedFilesize = "";
 
   if (!qualities || qualities.length === 0) {
@@ -126,13 +125,12 @@ function buildQualityPills(qualities) {
 
   const preferred  = qualities[qualities.length - 1];
   selectedQuality  = preferred.height;
-  selectedFormatId = preferred.format_id;
+  selectedUrl      = preferred.download_url;
   selectedFilesize = preferred.filesize_str || "";
 
   qualities.forEach(q => {
     const pill = document.createElement("button");
-    pill.className   = "quality-pill" + (q.format_id === selectedFormatId ? " selected" : "");
-    pill.dataset.formatId = q.format_id;
+    pill.className   = "quality-pill" + (q.height === selectedQuality ? " selected" : "");
     pill.dataset.height   = q.height;
     pill.dataset.filesize = q.filesize_str || "";
 
@@ -147,19 +145,19 @@ function buildQualityPills(qualities) {
 
     pill.innerHTML = `<span class="pill-label">${q.label}</span>${tierHtml}${sizeBadge}`;
 
-    pill.addEventListener("click", () => selectQuality(q.height, q.format_id, q.filesize_str || ""));
+    pill.addEventListener("click", () => selectQuality(q.height, q.download_url, q.filesize_str || ""));
     qualityGrid.appendChild(pill);
   });
 
   updateDownloadBtnLabel();
 }
 
-function selectQuality(height, formatId, filesizeStr) {
+function selectQuality(height, downloadUrl, filesizeStr) {
   selectedQuality  = height;
-  selectedFormatId = formatId;
+  selectedUrl      = downloadUrl;
   selectedFilesize = filesizeStr;
   qualityGrid.querySelectorAll(".quality-pill").forEach(pill => {
-    const isSel = pill.dataset.formatId === formatId;
+    const isSel = Number(pill.dataset.height) === height;
     pill.classList.toggle("selected", isSel);
   });
   updateDownloadBtnLabel();
@@ -214,41 +212,16 @@ async function fetchVideoInfo() {
 }
 
 // ── Download Video ────────────────────────────────────────────
-async function downloadVideo() {
-  if (!currentVideoData || !selectedFormatId) {
+function downloadVideo() {
+  if (!currentVideoData || !selectedUrl) {
     showToast("Please fetch a video and select quality first.", "error");
     return;
   }
 
-  const { url } = currentVideoData;
-
-  progressWrap.classList.remove("hidden");
-  downloadBtn.classList.add("hidden");
-  progressLabel.textContent = "Extracting direct download link…";
-
-  try {
-    const res = await fetch(`${API_BASE}/api/download?url=${encodeURIComponent(url)}&format_id=${selectedFormatId}`);
-    const data = await res.json();
-
-    if (!res.ok || data.error || !data.download_url) {
-      throw new Error(data.error || "Failed to generate download link.");
-    }
-
-    progressLabel.textContent = "Opening stream…";
-    window.location.href = data.download_url;
-
-    setTimeout(() => {
-      progressWrap.classList.add("hidden");
-      downloadBtn.classList.remove("hidden");
-      showToast("Download started!", "success");
-    }, 2000);
-
-  } catch (err) {
-    progressWrap.classList.add("hidden");
-    downloadBtn.classList.remove("hidden");
-    showToast(`Error: ${err.message}`, "error", 5000);
-    console.error(err);
-  }
+  showToast("Starting download...", "info", 3000);
+  
+  // Trigger direct browser navigation to force download stream without pop-up blocker issues
+  window.location.href = selectedUrl;
 }
 
 // ── Event Listeners ───────────────────────────────────────────

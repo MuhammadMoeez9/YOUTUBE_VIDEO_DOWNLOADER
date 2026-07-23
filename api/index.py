@@ -6,7 +6,6 @@ from flask import Flask, request, jsonify, redirect, send_from_directory
 from flask_cors import CORS
 import yt_dlp
 
-# Vercel function root resolution
 API_DIR = Path(__file__).parent
 ROOT_DIR = Path(__file__).parent.parent
 
@@ -19,7 +18,7 @@ QUALITY_LABEL_MAP = {
     "360":  "360p",
     "480":  "480p",
     "720":  "720p",
-    "1080": "1080p (No Audio/Requires PRO)",
+    "1080": "1080p (No Audio)",
 }
 
 def get_quality_label(height: int) -> str:
@@ -42,8 +41,6 @@ def find_cookie_file():
         src = root_cookies
         
     if src:
-        # Vercel has a read-only filesystem at /var/task, but /tmp is writable.
-        # Copy cookie file to /tmp so yt-dlp can safely open/write to it.
         tmp_cookies = Path("/tmp/cookies.txt")
         try:
             shutil.copyfile(src, tmp_cookies)
@@ -106,8 +103,9 @@ def video_info():
         h = fmt.get("height")
         vcodec = fmt.get("vcodec", "none")
         acodec = fmt.get("acodec", "none")
+        fmt_url = fmt.get("url")
 
-        if not h or vcodec == "none" or acodec == "none":
+        if not h or vcodec == "none" or acodec == "none" or not fmt_url:
             continue
         
         if h in seen_heights:
@@ -120,7 +118,7 @@ def video_info():
             "height": h,
             "label": get_quality_label(h),
             "filesize_str": format_filesize(fsize),
-            "format_id": fmt.get("format_id")
+            "download_url": fmt_url
         })
 
     qualities.sort(key=lambda q: q["height"])
@@ -137,30 +135,8 @@ def video_info():
         "duration": info.get("duration", 0),
         "view_count": info.get("view_count", 0),
         "thumbnail": thumb,
-        "qualities": qualities,
-        "cookie_browser": None
+        "qualities": qualities
     })
-
-@app.route("/api/download", methods=["GET"])
-def download_video():
-    url = request.args.get("url", "").strip()
-    format_id = request.args.get("format_id", "")
-
-    if not url or not format_id:
-        return jsonify({"error": "Missing params"}), 400
-
-    try:
-        opts = get_yt_dlp_opts({"format": format_id})
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            direct_url = info.get("url")
-            if not direct_url:
-                return jsonify({"error": "Could not extract direct URL"}), 500
-            
-            return jsonify({"download_url": direct_url})
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(port=5000, debug=True)
