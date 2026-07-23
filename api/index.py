@@ -18,7 +18,9 @@ QUALITY_LABEL_MAP = {
     "360":  "360p",
     "480":  "480p",
     "720":  "720p",
-    "1080": "1080p (No Audio)",
+    "1080": "1080p",
+    "1440": "2K",
+    "2160": "4K",
 }
 
 def get_quality_label(height: int) -> str:
@@ -50,25 +52,30 @@ def find_cookie_file():
             
     return None
 
-def get_yt_dlp_opts(extra_opts=None):
-    opts = {
+def extract_info_fast(url: str):
+    opts_base = {
         "quiet": True, 
         "no_warnings": True, 
         "skip_download": True,
+        "format": "all"
     }
-    
+
+    # First attempt: Try with cookies if cookiefile exists
     cookie_path = find_cookie_file()
     if cookie_path:
-        opts["cookiefile"] = cookie_path
-    
-    if extra_opts:
-        opts.update(extra_opts)
-        
-    return opts
+        opts_cookie = opts_base.copy()
+        opts_cookie["cookiefile"] = cookie_path
+        try:
+            with yt_dlp.YoutubeDL(opts_cookie) as ydl:
+                info = ydl.extract_info(url, download=False)
+                # Verify that video formats were found
+                if info and any(f.get("vcodec") != "none" and f.get("url") for f in info.get("formats", [])):
+                    return info
+        except Exception:
+            pass
 
-def extract_info_fast(url: str):
-    opts = get_yt_dlp_opts()
-    with yt_dlp.YoutubeDL(opts) as ydl:
+    # Second attempt / Fallback: Extract without cookies
+    with yt_dlp.YoutubeDL(opts_base) as ydl:
         return ydl.extract_info(url, download=False)
 
 @app.route("/")
@@ -90,14 +97,14 @@ def video_info():
     try:
         info = extract_info_fast(url)
     except Exception as e:
-        cookie_status = "found" if find_cookie_file() else "NOT found"
-        return jsonify({"error": f"{str(e)} (Cookie file: {cookie_status})"}), 400
+        return jsonify({"error": f"Extraction error: {str(e)}"}), 400
 
     qualities = []
     seen_heights = set()
 
     formats = info.get("formats", [])
-    formats = sorted(formats, key=lambda f: f.get("height") or 0, reverse=True)
+    # Sort formats by height descending, prioritizing combined streams (acodec != 'none')
+    formats = sorted(formats, key=lambda f: (f.get("height") or 0, 1 if f.get("acodec") != "none" else 0), reverse=True)
 
     for fmt in formats:
         h = fmt.get("height")
@@ -105,7 +112,7 @@ def video_info():
         acodec = fmt.get("acodec", "none")
         fmt_url = fmt.get("url")
 
-        if not h or vcodec == "none" or acodec == "none" or not fmt_url:
+        if not h or vcodec == "none" or not fmt_url:
             continue
         
         if h in seen_heights:
@@ -114,9 +121,13 @@ def video_info():
         seen_heights.add(h)
         fsize = fmt.get("filesize") or fmt.get("filesize_approx") or 0
         
+        label = get_quality_label(h)
+        if acodec == "none" and h >= 720:
+            label += " (Video)"
+
         qualities.append({
             "height": h,
-            "label": get_quality_label(h),
+            "label": label,
             "filesize_str": format_filesize(fsize),
             "download_url": fmt_url
         })
