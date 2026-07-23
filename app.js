@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════
-   YTGrab — App Logic (Direct Stream Edition)
+   YTGrab — App Logic (Hybrid Resilient Edition)
    ════════════════════════════════════════════════════════════ */
 
 const API_BASE = "";
@@ -71,6 +71,11 @@ function isYouTubeUrl(url) {
   } catch { return false; }
 }
 
+function getYouTubeId(url) {
+  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+  return match ? match[1] : null;
+}
+
 // ── Skeleton ──────────────────────────────────────────────────
 function showSkeleton() {
   videoCard.classList.remove("hidden");
@@ -119,7 +124,7 @@ function buildQualityPills(qualities) {
   selectedFilesize = "";
 
   if (!qualities || qualities.length === 0) {
-    qualityGrid.innerHTML = '<p style="color:var(--text-3);font-size:.85rem;">No downloadable pre-merged qualities found.</p>';
+    qualityGrid.innerHTML = '<p style="color:var(--text-3);font-size:.85rem;">No downloadable qualities found.</p>';
     return;
   }
 
@@ -171,6 +176,65 @@ function updateDownloadBtnLabel() {
     : "Download";
 }
 
+// ── Client-Side Fallback ──────────────────────────────────────
+async function fetchClientSideFallback(videoId, rawUrl) {
+  const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
+  if (!oembedRes.ok) throw new Error("Could not fetch video details from YouTube.");
+  const oembed = await oembedRes.json();
+
+  // Try Cobalt public API first
+  try {
+    const cobaltRes = await fetch("https://api.cobalt.tools/", {
+      method: "POST",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        url: rawUrl,
+        videoQuality: "max"
+      })
+    });
+    const cobaltData = await cobaltRes.json();
+    if (cobaltData && cobaltData.url) {
+      return {
+        title: oembed.title || "YouTube Video",
+        channel: oembed.author_name || "YouTube",
+        duration: 0,
+        view_count: 0,
+        thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+        qualities: [
+          {
+            height: 1080,
+            label: "HD Best Quality",
+            filesize_str: "",
+            download_url: cobaltData.url
+          }
+        ]
+      };
+    }
+  } catch (e) {
+    console.warn("Cobalt fallback failed:", e);
+  }
+
+  // Backup fallback
+  return {
+    title: oembed.title || "YouTube Video",
+    channel: oembed.author_name || "YouTube",
+    duration: 0,
+    view_count: 0,
+    thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+    qualities: [
+      {
+        height: 720,
+        label: "Download Direct",
+        filesize_str: "",
+        download_url: `https://ssyoutube.com/watch?v=${videoId}`
+      }
+    ]
+  };
+}
+
 // ── Fetch Video Info ──────────────────────────────────────────
 async function fetchVideoInfo() {
   const url = urlInput.value.trim();
@@ -192,14 +256,26 @@ async function fetchVideoInfo() {
   currentVideoData = null;
 
   try {
+    // 1. Try Backend API (/api/info)
     const res  = await fetch(`${API_BASE}/api/info?url=${encodeURIComponent(url)}`);
-    const data = await res.json();
+    if (res.ok) {
+      const data = await res.json();
+      if (data && !data.error && data.qualities && data.qualities.length > 0) {
+        currentVideoData = { ...data, url };
+        populateVideoCard(data);
+        showToast("Video info loaded!", "success");
+        return;
+      }
+    }
 
-    if (!res.ok || data.error) throw new Error(data.error || `Server error ${res.status}`);
-
-    currentVideoData = { ...data, url };
-    populateVideoCard(data);
-    showToast("Video info loaded!", "success");
+    // 2. If Backend fails or returns error/404, fallback to Client-side API
+    const videoId = getYouTubeId(url);
+    if (!videoId) throw new Error("Could not parse YouTube Video ID.");
+    
+    const fallbackData = await fetchClientSideFallback(videoId, url);
+    currentVideoData = { ...fallbackData, url };
+    populateVideoCard(fallbackData);
+    showToast("Video info loaded via fast stream!", "success");
 
   } catch (err) {
     console.error(err);
@@ -219,9 +295,7 @@ function downloadVideo() {
   }
 
   showToast("Starting download...", "info", 3000);
-  
-  // Trigger direct browser navigation to force download stream without pop-up blocker issues
-  window.location.href = selectedUrl;
+  window.open(selectedUrl, "_blank");
 }
 
 // ── Event Listeners ───────────────────────────────────────────
