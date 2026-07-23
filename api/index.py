@@ -32,51 +32,57 @@ def format_filesize(size_bytes: int) -> str:
     if size_bytes >= 1_024: return f"{size_bytes / 1_024:.0f} KB"
     return f"{size_bytes} B"
 
-def find_cookie_file():
-    api_cookies = API_DIR / "cookies.txt"
-    root_cookies = ROOT_DIR / "cookies.txt"
-    
-    src = None
-    if api_cookies.exists():
-        src = api_cookies
-    elif root_cookies.exists():
-        src = root_cookies
-        
-    if src:
-        tmp_cookies = Path("/tmp/cookies.txt")
-        try:
-            shutil.copyfile(src, tmp_cookies)
-            return str(tmp_cookies)
-        except Exception:
-            return str(src)
-            
-    return None
+def extract_info_robust(url: str):
+    attempts = [
+        # Strategy 1: Standard extraction
+        {
+            "quiet": True, 
+            "no_warnings": True, 
+            "skip_download": True,
+            "nocheckcertificate": True,
+        },
+        # Strategy 2: Android player client
+        {
+            "quiet": True, 
+            "no_warnings": True, 
+            "skip_download": True,
+            "nocheckcertificate": True,
+            "extractor_args": {"youtube": {"player_client": ["android"]}}
+        },
+        # Strategy 3: Web player client
+        {
+            "quiet": True, 
+            "no_warnings": True, 
+            "skip_download": True,
+            "nocheckcertificate": True,
+            "extractor_args": {"youtube": {"player_client": ["web"]}}
+        },
+        # Strategy 4: TV player client
+        {
+            "quiet": True, 
+            "no_warnings": True, 
+            "skip_download": True,
+            "nocheckcertificate": True,
+            "extractor_args": {"youtube": {"player_client": ["tv"]}}
+        },
+    ]
 
-def extract_info_fast(url: str):
-    opts_base = {
-        "quiet": True, 
-        "no_warnings": True, 
-        "skip_download": True,
-        "format": "all"
-    }
-
-    # First attempt: Try with cookies if cookiefile exists
-    cookie_path = find_cookie_file()
-    if cookie_path:
-        opts_cookie = opts_base.copy()
-        opts_cookie["cookiefile"] = cookie_path
+    last_err = None
+    for opts in attempts:
         try:
-            with yt_dlp.YoutubeDL(opts_cookie) as ydl:
+            with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=False)
-                # Verify that video formats were found
-                if info and any(f.get("vcodec") != "none" and f.get("url") for f in info.get("formats", [])):
-                    return info
-        except Exception:
-            pass
+                if info and info.get("formats"):
+                    valid = [f for f in info["formats"] if f.get("url") and f.get("height")]
+                    if valid:
+                        return info
+        except Exception as e:
+            last_err = e
+            continue
 
-    # Second attempt / Fallback: Extract without cookies
-    with yt_dlp.YoutubeDL(opts_base) as ydl:
-        return ydl.extract_info(url, download=False)
+    if last_err:
+        raise last_err
+    raise Exception("No valid video formats found for this URL.")
 
 @app.route("/")
 def index():
@@ -95,7 +101,7 @@ def video_info():
     if not url: return jsonify({"error": "No URL"}), 400
 
     try:
-        info = extract_info_fast(url)
+        info = extract_info_robust(url)
     except Exception as e:
         return jsonify({"error": f"Extraction error: {str(e)}"}), 400
 
@@ -103,7 +109,7 @@ def video_info():
     seen_heights = set()
 
     formats = info.get("formats", [])
-    # Sort formats by height descending, prioritizing combined streams (acodec != 'none')
+    # Sort formats by height descending, prioritizing combined audio+video streams
     formats = sorted(formats, key=lambda f: (f.get("height") or 0, 1 if f.get("acodec") != "none" else 0), reverse=True)
 
     for fmt in formats:
